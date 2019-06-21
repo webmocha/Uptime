@@ -47,14 +47,14 @@ uptime /var/db/uptime.db
 ## Dev
 
 ```sh
-ag '*.go' | entr make dev
+ag -g '\.go' . | entr sh -c 'clear && env PORT=8080 make dev'
 ```
 
 ## API
 
-| method | path   | params / payload | returns                                |
-|--------|--------|------------------|----------------------------------------|
-| GET    | /sites |                  | list sites with last status and uptime |
-| POST   | /sites | key={url}        |                                        |
+| method | path       | params / payload | returns                                |
+|--------|------------|------------------|----------------------------------------|
+| GET    | /api/sites |                  | list sites with last status and uptime |
+| POST   | /api/sites | key={url}        |                                        |
 
 
