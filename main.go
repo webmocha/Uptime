@@ -31,8 +31,8 @@ var (
 )
 
 type Status struct {
-	Time time.Time
-	Code int
+	Time time.Time `json:"time"`
+	Code int       `json:"code"`
 }
 type Sites []*SiteStatus
 type Site struct {
@@ -45,6 +45,10 @@ type SiteStatus struct {
 	Status     int    `json:"status"`
 	StatusText string `json:"statusText"`
 	Uptime     string `json:"uptime"`
+}
+type SiteDetail struct {
+	*SiteStatus
+	History []*Status `json:"history"`
 }
 
 func checkSiteUpdateStatus(key string, site *Site) {
@@ -83,7 +87,7 @@ func checkSiteUpdateStatus(key string, site *Site) {
 			log.Printf("[WATCHDOG] [%s] [ERROR] Put Status : %+v\n", key, err)
 			return
 		}
-		log.Printf("[WATCHDOG] [%s] [STATUS] %s\n", key, resp.StatusCode)
+		log.Printf("[WATCHDOG] [%s] [STATUS] %d\n", key, resp.StatusCode)
 	}
 }
 
@@ -112,14 +116,70 @@ func watchDog() {
 }
 
 func handleGetSite(w http.ResponseWriter, r *http.Request) {
-	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(sitesBucket))
-		v := b.Get([]byte("answer"))
+	keys, ok := r.URL.Query()["key"]
 
-		fmt.Printf("The answer is: %s\n", v)
+	if !ok || len(keys[0]) < 1 {
+		log.Printf("[ERROR] Invalid QueryString: %+v\n", r.URL.Query())
+		http.Error(w, http.StatusText(http.StatusBadRequest)+"\nQuery Param 'key' is missing", http.StatusBadRequest)
+		return
+	}
+
+	key := keys[0]
+
+	if err := db.View(func(tx *bolt.Tx) error {
+
+		b := tx.Bucket([]byte(sitesBucket))
+		siteBytes := b.Get([]byte(key))
+		if siteBytes == nil {
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return nil
+		}
+
+		siteStatus, siteStatusErr := getSiteStatus(key)
+		if siteStatusErr != nil {
+			log.Printf("[ERROR] [%s] getting site status: %v\n", key, siteStatusErr)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return nil
+		}
+		var decodeSiteErr error
+		siteStatus.Site, decodeSiteErr = decodeSite(*bytes.NewBuffer(siteBytes))
+		if decodeSiteErr != nil {
+			log.Printf("[ERROR] [%s] decoding site: %v\n", key, decodeSiteErr)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return nil
+		}
+
+		c := tx.Bucket([]byte(statusBucket)).Cursor()
+		s := []*Status{}
+
+		prefix := []byte(key + "|")
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			t, err := time.Parse(time.RFC3339, strings.TrimPrefix(string(k), string(prefix)))
+			if err != nil {
+				log.Printf("[ERROR] while parsing time %s: %+v\n", strings.TrimPrefix(string(k), string(prefix)), err)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return nil
+			}
+			code, _ := strconv.Atoi(string(v))
+			s = append(s, &Status{
+				Time: t,
+				Code: code,
+			})
+		}
+
+		siteDetail := &SiteDetail{
+			SiteStatus: siteStatus,
+			History:    s,
+		}
+
+		if j, err := json.Marshal(siteDetail); err != nil {
+			log.Printf("[ERROR] marshalling json %+v\n", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		} else {
+			fmt.Fprintf(w, string(j))
+		}
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		log.Printf("[ERROR] reading from db: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
@@ -299,7 +359,9 @@ func main() {
 	})
 
 	http.HandleFunc("/api/sites", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
+		if r.Method == http.MethodGet && len(r.URL.Query()) > 0 {
+			handleGetSite(w, r)
+		} else if r.Method == http.MethodGet {
 			handleGetSites(w, r)
 		} else if r.Method == http.MethodPost {
 			handlePostSite(w, r)

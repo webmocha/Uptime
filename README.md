@@ -39,6 +39,7 @@ https://webmocha.com|2019-06-21T17:03:45.584Z: 200
 https://webmocha.com|2019-06-21T17:04:45.584Z: 200
 https://webmocha.com|2019-06-21T17:05:45.584Z: 200
 https://webmocha.com|2019-06-21T17:06:45.584Z: 503
+https://webmocha.com|2019-06-21T17:07:45.584Z: 200
 ```
 
 ## Dev
@@ -52,6 +53,7 @@ ag -g '\.go' . | entr sh -c 'clear && env PORT=8080 make dev'
 | method | path       | params / payload | returns                                |
 |--------|------------|------------------|----------------------------------------|
 | GET    | /api/sites |                  | list sites with last status and uptime |
+| GET    | /api/sites | key={url}        | site info with status history          |
 | POST   | /api/sites | key={url}        |                                        |
 
 ### GET /api/sites
@@ -61,10 +63,47 @@ ag -g '\.go' . | entr sh -c 'clear && env PORT=8080 make dev'
   {
     "key": "https://webmocha.com",
     "firstCheck": "2019-06-21T17:03:45.584Z",
-    "lastCheck": "2019-06-21T18:03:45.584Z",
+    "lastCheck": "2019-06-21T17:07:45.584Z",
     "status": 200,
     "statusText": "OK",
     "uptime": "2hrs"
+  }
+]
+```
+
+### GET /api/sites?key=https://webmocha.com
+
+```json
+[
+  {
+    "key": "https://webmocha.com",
+    "firstCheck": "2019-06-21T17:03:45.584Z",
+    "lastCheck": "2019-06-21T18:03:45.584Z",
+    "status": 200,
+    "statusText": "OK",
+    "uptime": "2hrs",
+    "history": [
+      {
+        "time": "2019-06-21T17:03:45.584Z",
+        "code": 200
+      },
+      {
+        "time": "2019-06-21T17:04:45.584Z",
+        "code": 200
+      },
+      {
+        "time": "2019-06-21T17:05:45.584Z",
+        "code": 200
+      },
+      {
+        "time": "2019-06-21T17:06:45.584Z",
+        "code": 503
+      },
+      {
+        "time": "2019-06-21T17:07:45.584Z",
+        "code": 200
+      }
+    ]
   }
 ]
 ```
