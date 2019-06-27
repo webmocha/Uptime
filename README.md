@@ -24,24 +24,21 @@ uptime /var/db/uptime.db
 
 ### Sites Bucket
 
-```json
-{
-  "https://webmocha.com" : {
-    "First": "2019-06-21T17:03:45.584Z",
-    "Last": "2019-06-21T18:03:45.584Z"
-  }
-}
+```yaml
+key: value(Site)
+https://webmocha.com:
+  FirstCheck: "2019-06-21T17:03:45.584Z"
+  LastCheck: "2019-06-21T18:03:45.584Z"
 ```
 
 ### Status Bucket
 
-```json
-{
-  "https://webmocha.com|2019-06-21T17:03:45.584Z" : 200,
-  "https://webmocha.com|2019-06-21T17:04:45.584Z" : 200,
-  "https://webmocha.com|2019-06-21T17:05:45.584Z" : 200,
-  "https://webmocha.com|2019-06-21T17:06:45.584Z" : 503
-}
+```yaml
+key: value
+https://webmocha.com|2019-06-21T17:03:45.584Z: 200
+https://webmocha.com|2019-06-21T17:04:45.584Z: 200
+https://webmocha.com|2019-06-21T17:05:45.584Z: 200
+https://webmocha.com|2019-06-21T17:06:45.584Z: 503
 ```
 
 ## Dev
@@ -57,4 +54,21 @@ ag -g '\.go' . | entr sh -c 'clear && env PORT=8080 make dev'
 | GET    | /api/sites |                  | list sites with last status and uptime |
 | POST   | /api/sites | key={url}        |                                        |
 
+### GET /api/sites
 
+```json
+[
+  {
+    "key": "https://webmocha.com",
+    "firstCheck": "2019-06-21T17:03:45.584Z",
+    "lastCheck": "2019-06-21T18:03:45.584Z",
+    "status": 200,
+    "statusText": "OK",
+    "uptime": "2hrs"
+  }
+]
+```
+
+### Testing
+
+curl -X POST --data "key=https://webmocha.com" localhost:8080/api/sites
