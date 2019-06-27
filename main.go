@@ -47,6 +47,70 @@ type SiteStatus struct {
 	Uptime     string `json:"uptime"`
 }
 
+func checkSiteUpdateStatus(key string, site *Site) {
+	log.Printf("[WATCHDOG] [%s] checking status\n", key)
+
+	if resp, err := http.Get(key); err != nil {
+		log.Printf("[WATCHDOG] [%s] [ERROR] : %+v\n", key, err)
+	} else {
+		site.LastCheck = time.Now()
+		var encodeSiteErr error
+		siteBytes, encodeSiteErr := encodeSite(site)
+		if encodeSiteErr != nil {
+			log.Printf("[WATCHDOG] [%s] [ERROR] Encoding site : %+v\n", key, encodeSiteErr)
+			return
+		}
+		if err := db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte(sitesBucket))
+			if err := b.Put([]byte(key), siteBytes); err != nil {
+				log.Printf("[WATCHDOG] [%s] [ERROR] Updating Site LastCheck : %+v\n", key, err)
+				return err
+			}
+			return nil
+		}); err != nil {
+			log.Printf("[WATCHDOG] [%s] [ERROR] Updating Site LastCheck : %+v\n", key, err)
+			return
+		}
+		if err := db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte(statusBucket))
+			statusKey := key + "|" + time.Now().Format(time.RFC3339)
+			if err := b.Put([]byte(statusKey), []byte(strconv.Itoa(resp.StatusCode))); err != nil {
+				log.Printf("[WATCHDOG] [%s] [ERROR] Put Status : %+v\n", key, err)
+				return err
+			}
+			return nil
+		}); err != nil {
+			log.Printf("[WATCHDOG] [%s] [ERROR] Put Status : %+v\n", key, err)
+			return
+		}
+		log.Printf("[WATCHDOG] [%s] [STATUS] %s\n", key, resp.StatusCode)
+	}
+}
+
+func watchDog() {
+	ticker := time.NewTicker(1 * time.Minute)
+	for {
+		select {
+		case <-ticker.C:
+			if err := db.View(func(tx *bolt.Tx) error {
+				c := tx.Bucket([]byte(sitesBucket)).Cursor()
+
+				for k, v := c.First(); k != nil; k, v = c.Next() {
+					site, err := decodeSite(*bytes.NewBuffer(v))
+					if err != nil {
+						log.Printf("[WATCHDOG] [%s] [ERROR] decoding site: %v\n", k, err)
+						continue
+					}
+					go checkSiteUpdateStatus(string(k), site)
+				}
+				return nil
+			}); err != nil {
+				log.Printf("[WATCHDOG] Error reading from db: %v\n", err)
+			}
+		}
+	}
+}
+
 func handleGetSite(w http.ResponseWriter, r *http.Request) {
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(sitesBucket))
@@ -56,11 +120,21 @@ func handleGetSite(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		log.Printf("Error reading from db: %v", err)
+		log.Printf("[ERROR] reading from db: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 
+func encodeSite(site *Site) ([]byte, error) {
+	var val bytes.Buffer
+	enc := gob.NewEncoder(&val)
+	if err := enc.Encode(site); err != nil {
+		log.Printf("[ERROR] Encoding Site with gob: %v\n", err)
+		return nil, err
+	}
+
+	return val.Bytes(), nil
+}
 func decodeSite(buf bytes.Buffer) (*Site, error) {
 	site := &Site{}
 	dec := gob.NewDecoder(&buf)
@@ -80,7 +154,7 @@ func getSiteStatus(key string) (*SiteStatus, error) {
 		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			t, err := time.Parse(time.RFC3339, strings.TrimPrefix(string(k), string(prefix)))
 			if err != nil {
-				log.Printf("Error while parsing time %s: %+v", strings.TrimPrefix(string(k), string(prefix)), err)
+				log.Printf("[ERROR] while parsing time %s: %+v\n", strings.TrimPrefix(string(k), string(prefix)), err)
 				return err
 			}
 			code, _ := strconv.Atoi(string(v))
@@ -107,7 +181,7 @@ func getSiteStatus(key string) (*SiteStatus, error) {
 		if len(s) > 0 {
 			siteStatus.Status = s[len(s)-1].Code
 			siteStatus.StatusText = http.StatusText(siteStatus.Status)
-			siteStatus.Uptime = s[0].Time.Sub(s[len(s)-1].Time).String()
+			siteStatus.Uptime = s[len(s)-1].Time.Sub(s[0].Time).String()
 		} else {
 			siteStatus.Uptime = "0s"
 		}
@@ -139,12 +213,12 @@ func handleGetSites(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		log.Printf("Error reading from db: %v", err)
+		log.Printf("[ERROR] reading from db: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	if j, err := json.Marshal(sites); err != nil {
-		log.Printf("Error marshalling json %+v", err)
+		log.Printf("[ERROR] marshalling json %+v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	} else {
 		fmt.Fprintf(w, string(j))
@@ -154,44 +228,43 @@ func handleGetSites(w http.ResponseWriter, r *http.Request) {
 func handlePostSite(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("Error reading POST body: %v", err)
+		log.Printf("[ERROR] reading POST body: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	payload, perr := url.ParseQuery(string(body))
 	if perr != nil {
-		log.Printf("Error parsing body: %v", perr)
+		log.Printf("[ERROR] parsing body: %v\n", perr)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	if payload["key"] == nil {
-		log.Printf("Error Invalid Payload: %+v", payload)
+		log.Printf("[ERROR] Invalid Payload: %+v\n", payload)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
-	var val bytes.Buffer
-	enc := gob.NewEncoder(&val)
-	goberr := enc.Encode(Site{
+	siteBytes, encodeSiteErr := encodeSite(&Site{
 		FirstCheck: time.Now(),
 		LastCheck:  time.Now(),
 	})
-	if goberr != nil {
-		log.Printf("Error Encoding Site with gob: %v", goberr)
+	if encodeSiteErr != nil {
+		log.Printf("[ERROR] encoding site: %+v\n", encodeSiteErr)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
 	}
 
 	db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(sitesBucket))
-		err := b.Put([]byte(payload["key"][0]), val.Bytes())
+		err := b.Put([]byte(payload["key"][0]), siteBytes)
 		return err
 	})
 
-	fmt.Fprintf(w, "Added %s", payload["key"][0])
+	fmt.Fprintf(w, "[ADDED] %s", payload["key"][0])
 
-	log.Printf("Added %s", payload["key"][0])
+	log.Printf("Added %s\n", payload["key"][0])
 }
 
 func main() {
@@ -243,6 +316,8 @@ func main() {
 		port = defaultPort
 	}
 
-	fmt.Printf("Opened DB %s\nServer listening on port %s", dbPath, port)
+	go watchDog()
+
+	fmt.Printf("Opened DB %s\nServer listening on port %s\n", dbPath, port)
 	http.ListenAndServe(":"+port, nil)
 }
