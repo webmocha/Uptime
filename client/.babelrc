@@ -1,0 +1,10 @@
+{
+  "presets": [
+    "@babel/env"
+  ],
+  "plugins": [
+    "syntax-jsx",
+    ["transform-react-jsx", {"pragma": "html"}],
+    "transform-function-bind",
+  ]
+}
