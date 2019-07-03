@@ -176,6 +176,7 @@ func handleGetSite(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[ERROR] marshalling json %+v\n", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		} else {
+			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, string(j))
 		}
 		return nil
@@ -281,6 +282,7 @@ func handleGetSites(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] marshalling json %+v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	} else {
+		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, string(j))
 	}
 }
