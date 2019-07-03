@@ -4,75 +4,73 @@ import { makeHTTPDriver } from "@cycle/http"
 import xs from "xstream"
 
 function main(sources) {
-    // const click$ = sources.DOM.select('.get-first').events('click');
+  // const click$ = sources.DOM.select('.get-first').events('click');
 
-    const request$ = xs.of({
-        url:'/api/sites',
-        method: 'GET',
-        category: 'sites',
-    })
+  const request = {
+    url:'/api/sites',
+    method: 'GET',
+    category: 'sites',
+  }
 
-    const stream = xs.periodic(5 * 1000)
-      .map(() => xs.of({
-          url:'/api/sites',
-          method: 'GET',
-          category: 'sites',
-      }))
+  const initStatus$ = xs.of(request)
 
-    const remove$ = sources.DOM.select('[data-action="remove"]')
-      .events('click')
-      .map(ev => ev.currentTarget.dataset['key']);
+  const periodicStatus$ = xs.periodic(60 * 1000)
+    .mapTo(request)
 
-    const response$ = sources.HTTP
-        .select('sites')
-        .flatten()
-        .map(res => res.body);
+  const remove$ = sources.DOM.select('[data-action="remove"]')
+    .events('click')
+    .map(ev => ev.currentTarget.dataset['key']);
 
-    const vdom$ = response$.startWith([]).map(sites =>
-        div([
-          fieldset([
-            input('.add-site'),
-            button('Add Site'),
+  const response$ = sources.HTTP
+      .select('sites')
+      .flatten()
+      .map(res => res.body);
+
+  const vdom$ = response$.startWith([]).map(sites =>
+      div([
+        fieldset([
+          input('.add-site'),
+          button('Add Site'),
+        ]),
+        table([
+          tr([
+            th('Key'),
+            th('Uptime'),
+            th({ attrs : { colspan: 2}}, 'Status'),
+            th('History'),
+            th(),
           ]),
-          table([
+          ...sites.map(({key, uptime, status, statusText}) =>
             tr([
-              th('Key'),
-              th('Uptime'),
-              th({ attrs : { colspan: 2}}, 'Status'),
-              th('History'),
-              th(),
-            ]),
-            ...sites.map(({key, uptime, status, statusText}) =>
-              tr([
-                td(key),
-                td(uptime),
-                td(status),
-                td(statusText),
-                td(
-                  a({
-                    attrs: {
-                      href: `/site?key=${key}`
-                    }
-                  },
-                  button({ attrs: { type: 'button' }}, 'H'))
-                ),
-                td(
-                  button({ attrs: {
-                    type: 'button',
-                    'data-key': key,
-                    'data-action': 'remove'
-                  }}, 'X')
-                ),
-              ])
-            )
-          ]),
-        ])
-    )
+              td(key),
+              td(uptime),
+              td(status),
+              td(statusText),
+              td(
+                a({
+                  attrs: {
+                    href: `/site?key=${key}`
+                  }
+                },
+                button({ attrs: { type: 'button' }}, 'H'))
+              ),
+              td(
+                button({ attrs: {
+                  type: 'button',
+                  'data-key': key,
+                  'data-action': 'remove'
+                }}, 'X')
+              ),
+            ])
+          )
+        ]),
+      ])
+  )
 
-    return {
-      DOM: vdom$,
-      HTTP: request$,
-    }
+  return {
+    DOM: vdom$,
+    HTTP: xs.merge(initStatus$, periodicStatus$),
+  }
 }
 
 const drivers = {
