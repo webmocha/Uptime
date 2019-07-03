@@ -3,8 +3,19 @@ import { button, p, h1, h4, a, div, table, th, tr, td, fieldset, input, makeDOMD
 import { makeHTTPDriver } from "@cycle/http"
 import xs from "xstream"
 
+const initialState$ = xs.of({
+  addKey: '',
+  sites: [],
+})
+
 function main(sources) {
-  // const click$ = sources.DOM.select('.get-first').events('click');
+  const addSiteInputChange$ = sources.DOM.select('.add-site-input').events('change')
+    .map(ev => ev.target.value)
+    .startWith('')
+    .map(addKey => { return console.log('KEY', addKey) || { addKey } })
+
+  const addSiteClick$ = sources.DOM.select('.add-site-btn').events('click');
+
 
   const request = {
     url:'/api/sites',
@@ -22,15 +33,26 @@ function main(sources) {
     .map(ev => ev.currentTarget.dataset['key']);
 
   const response$ = sources.HTTP
-      .select('sites')
-      .flatten()
-      .map(res => res.body);
+    .select('sites')
+    .flatten()
+    .map(res => ({sites: res.body}));
 
-  const vdom$ = response$.startWith([]).map(sites =>
+  const state$ = initialState$
+    .map(props => xs.combine(
+      response$,
+      addSiteInputChange$
+    ))
+    .flatten()
+    .map(combined => combined.reduce((combined, part) => ({ ...part, ...combined }), {}))
+    .remember()
+
+  const vdom$ = state$
+    .map(({ addKey, sites }) =>
       div([
+        div(addKey),
         fieldset([
-          input('.add-site'),
-          button('Add Site'),
+          input('.add-site-input'),
+          button('.add-site-btn', 'Add Site'),
         ]),
         table([
           tr([
@@ -65,7 +87,7 @@ function main(sources) {
           )
         ]),
       ])
-  )
+    )
 
   return {
     DOM: vdom$,
@@ -74,8 +96,8 @@ function main(sources) {
 }
 
 const drivers = {
-    DOM: makeDOMDriver('#app'),
-    HTTP: makeHTTPDriver(),
+  DOM: makeDOMDriver('#app'),
+  HTTP: makeHTTPDriver(),
 }
 
 run(main, drivers);
