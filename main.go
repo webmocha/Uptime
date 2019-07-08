@@ -329,6 +329,38 @@ func handlePostSite(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Added %s\n", payload["key"][0])
 }
 
+func handleDeleteSite(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("[ERROR] reading POST body: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	payload, perr := url.ParseQuery(string(body))
+	if perr != nil {
+		log.Printf("[ERROR] parsing body: %v\n", perr)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	if payload["key"] == nil {
+		log.Printf("[ERROR] Invalid Payload: %+v\n", payload)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(sitesBucket))
+		err := b.Delete([]byte(payload["key"][0]))
+		return err
+	})
+
+	fmt.Fprintf(w, "[REMOVED] %s", payload["key"][0])
+
+	log.Printf("Removed %s\n", payload["key"][0])
+}
+
 func main() {
 	dbPath := defaultDbPath
 	if len(os.Args) > 1 {
@@ -367,6 +399,8 @@ func main() {
 			handleGetSites(w, r)
 		} else if r.Method == http.MethodPost {
 			handlePostSite(w, r)
+		} else if r.Method == http.MethodDelete {
+			handleDeleteSite(w, r)
 		} else {
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		}
