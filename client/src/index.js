@@ -1,58 +1,82 @@
+import { stringify } from "querystring"
 import { run } from "@cycle/run"
+import { withState } from '@cycle/state';
 import { button, p, h1, h4, a, div, table, th, tr, td, fieldset, input, makeDOMDriver } from "@cycle/dom"
 import { makeHTTPDriver } from "@cycle/http"
 import xs from "xstream"
 
-const initialState$ = xs.of({
-  addKey: '',
-  sites: [],
+const sitesRequest = {
+  url:'/api/sites',
+  method: 'GET',
+  category: 'sites',
+}
+
+const addSiteRequest = query => ({
+  url:'/api/sites',
+  method: 'POST',
+  category: 'addSite',
+  send: stringify(query)
 })
 
 function main(sources) {
+
+  const formState = {
+    key: ''
+  }
+
   const addSiteInputChange$ = sources.DOM.select('.add-site-input').events('change')
     .map(ev => ev.target.value)
     .startWith('')
-    .map(addKey => { return console.log('KEY', addKey) || { addKey } })
+    .addListener({
+      next: value => formState.key = value,
+      error: console.error,
+      complete: () => {},
+    })
 
-  const addSiteClick$ = sources.DOM.select('.add-site-btn').events('click');
+  const addSite$ = sources.DOM.select('.add-site-btn').events('click')
+    .map(() => addSiteRequest({ key: formState.key }))
 
+  const addSiteResponse$ = sources.HTTP
+    .select('addSite')
+    .flatten()
+    .map(res => ({ addSiteStatus: res.text }));
 
-  const request = {
-    url:'/api/sites',
-    method: 'GET',
-    category: 'sites',
-  }
-
-  const initStatus$ = xs.of(request)
+  const initStatus$ = xs.of(sitesRequest)
 
   const periodicStatus$ = xs.periodic(60 * 1000)
-    .mapTo(request)
+    .mapTo(sitesRequest)
 
   const remove$ = sources.DOM.select('[data-action="remove"]')
     .events('click')
     .map(ev => ev.currentTarget.dataset['key']);
 
-  const response$ = sources.HTTP
+  const sitesResponse$ = sources.HTTP
     .select('sites')
     .flatten()
     .map(res => ({sites: res.body}));
 
-  const state$ = initialState$
-    .map(props => xs.combine(
-      response$,
-      addSiteInputChange$
-    ))
-    .flatten()
-    .map(combined => combined.reduce((combined, part) => ({ ...part, ...combined }), {}))
-    .remember()
+  const initialReducer$ = xs.of(() => ({
+    sites: [],
+    addSiteStatus: ''
+  }))
+
+  const sitesReducer$ = sitesResponse$
+    .map(({ sites }) => state => ({ ...state, sites }))
+
+  const addSiteStatusReducer$ = addSiteResponse$
+    .map(({ addSiteStatus }) => state => ({ ...state, addSiteStatus }))
+
+  const reducer$ = xs.merge(initialReducer$, sitesReducer$, addSiteStatusReducer$);
+
+  const state$ = sources.state.stream;
 
   const vdom$ = state$
-    .map(({ addKey, sites }) =>
+    .map(({ sites, addSiteStatus }) =>
       div([
-        div(addKey),
         fieldset([
           input('.add-site-input'),
           button('.add-site-btn', 'Add Site'),
+          div(addSiteStatus),
         ]),
         table([
           tr([
@@ -91,7 +115,8 @@ function main(sources) {
 
   return {
     DOM: vdom$,
-    HTTP: xs.merge(initStatus$, periodicStatus$),
+    HTTP: xs.merge(initStatus$, periodicStatus$, addSite$),
+    state: reducer$
   }
 }
 
@@ -100,4 +125,4 @@ const drivers = {
   HTTP: makeHTTPDriver(),
 }
 
-run(main, drivers);
+run(withState(main), drivers);
