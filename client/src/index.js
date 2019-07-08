@@ -1,7 +1,7 @@
 import { stringify } from "querystring"
 import { run } from "@cycle/run"
 import { withState } from '@cycle/state';
-import { button, p, h1, h4, a, div, table, th, tr, td, fieldset, input, makeDOMDriver } from "@cycle/dom"
+import { button, p, span, h1, h4, a, div, table, th, tr, td, fieldset, input, makeDOMDriver } from "@cycle/dom"
 import { makeHTTPDriver } from "@cycle/http"
 import xs from "xstream"
 
@@ -20,6 +20,8 @@ const addSiteRequest = query => ({
 
 function main(sources) {
 
+  // idk how to extract state.addSiteInput better
+  // using state$.subscribe to update this
   const formState = {
     key: ''
   }
@@ -27,11 +29,6 @@ function main(sources) {
   const addSiteInputChange$ = sources.DOM.select('.add-site-input').events('change')
     .map(ev => ev.target.value)
     .startWith('')
-    .addListener({
-      next: value => formState.key = value,
-      error: console.error,
-      complete: () => {},
-    })
 
   const addSite$ = sources.DOM.select('.add-site-btn').events('click')
     .map(() => addSiteRequest({ key: formState.key }))
@@ -39,7 +36,7 @@ function main(sources) {
   const addSiteResponse$ = sources.HTTP
     .select('addSite')
     .flatten()
-    .map(res => ({ addSiteStatus: res.text }));
+    .map(res => res.text);
 
   const initStatus$ = xs.of(sitesRequest)
 
@@ -48,27 +45,37 @@ function main(sources) {
 
   const remove$ = sources.DOM.select('[data-action="remove"]')
     .events('click')
-    .map(ev => ev.currentTarget.dataset['key']);
+    .map(ev => ev.currentTarget.dataset['key'])
 
   const sitesResponse$ = sources.HTTP
     .select('sites')
     .flatten()
-    .map(res => ({sites: res.body}));
+    .map(res => res.body)
 
   const initialReducer$ = xs.of(() => ({
     sites: [],
-    addSiteStatus: ''
+    addSiteInput: '',
+    addSiteStatus: '',
   }))
 
   const sitesReducer$ = sitesResponse$
-    .map(({ sites }) => state => ({ ...state, sites }))
+    .map(sites => state => ({ ...state, sites }))
+
+  const formReducer$ = addSiteInputChange$
+    .map(addSiteInput => state => ({ ...state, addSiteInput }))
 
   const addSiteStatusReducer$ = addSiteResponse$
-    .map(({ addSiteStatus }) => state => ({ ...state, addSiteStatus }))
+    .map(addSiteStatus => state => ({ ...state, addSiteStatus }))
 
-  const reducer$ = xs.merge(initialReducer$, sitesReducer$, addSiteStatusReducer$);
+  const reducer$ = xs.merge(initialReducer$, sitesReducer$, formReducer$, addSiteStatusReducer$);
 
   const state$ = sources.state.stream;
+
+  state$.subscribe({
+    next: ({ addSiteInput }) => formState.key = addSiteInput,
+    error: console.error,
+    complete: () => {},
+  })
 
   const vdom$ = state$
     .map(({ sites, addSiteStatus }) =>
@@ -76,7 +83,7 @@ function main(sources) {
         fieldset([
           input('.add-site-input'),
           button('.add-site-btn', 'Add Site'),
-          div(addSiteStatus),
+          span(addSiteStatus),
         ]),
         table([
           tr([
