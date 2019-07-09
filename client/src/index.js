@@ -18,6 +18,13 @@ const addSiteRequest = query => ({
   send: stringify(query)
 })
 
+const removeSiteRequest = query => ({
+  url:'/api/sites',
+  method: 'DELETE',
+  category: 'removeSite',
+  send: stringify(query)
+})
+
 function main(sources) {
 
   // idk how to extract state.addSiteInput better
@@ -38,14 +45,20 @@ function main(sources) {
     .flatten()
     .map(res => res.text);
 
+  const removeSite$ = sources.DOM.select('[data-action="remove"]')
+    .events('click')
+    .map(ev => removeSiteRequest({ key: ev.currentTarget.dataset['key'] }))
+
+  const removeSiteResponse$ = sources.HTTP
+    .select('removeSite')
+    .flatten()
+    .map(res => res.text)
+
   const initStatus$ = xs.of(sitesRequest)
 
   const periodicStatus$ = xs.periodic(60 * 1000)
     .mapTo(sitesRequest)
 
-  const remove$ = sources.DOM.select('[data-action="remove"]')
-    .events('click')
-    .map(ev => ev.currentTarget.dataset['key'])
 
   const sitesResponse$ = sources.HTTP
     .select('sites')
@@ -122,7 +135,7 @@ function main(sources) {
 
   return {
     DOM: vdom$,
-    HTTP: xs.merge(initStatus$, periodicStatus$, addSite$),
+    HTTP: xs.merge(initStatus$, periodicStatus$, periodicStatus$, addSite$, removeSite$),
     state: reducer$
   }
 }
